@@ -6,11 +6,10 @@ from typing import List
 import datetime
 from dateutil import tz
 
-import requests
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
-PROJECT_DIR = '/Users/derek/PycharmProjects/squarespool'
+PROJECT_DIR = '/Users/derek/workspace/picks-pool'
 
 
 @dataclass
@@ -20,8 +19,10 @@ class Node:
     data: str
 
     def has_class(self, class_name: str) -> bool:
-        result = class_name == self.get_attr('class')
-        return result
+        for attr in self.attrs:
+            if attr[0] == 'class' and class_name in attr[1].split(' '):
+                return True
+        return False
 
     def id(self) -> str:
         return self.get_attr('id')
@@ -112,18 +113,21 @@ class ScheduleParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         node = Node(tag, attrs, '')
-        if tag == 'div' and node.has_class('scoreboard-wrapper'):
+        if tag == 'article' and node.has_class('scoreboard') and node.has_class('football'):
+            print(attrs)
             self.in_scoreboard_page = True
             self.current_game = GameData(self.week)
             self.games.append(self.current_game)
+            game_id = node.get_attr('id')
+            self.current_game.game_id = game_id
         if self.in_scoreboard_page:
             self.node_stack.append(node)
             if tag == 'th' and node.has_class('date-time'):
                 self.current_game.date_and_time = node.get_attr('data-date')
-            if self.stack_contains('section', 'sb-actions') and tag == 'a' and 'gamecast' in node.get_attr('name'):
-                link = node.get_attr('href')
-                game_id = link.split('/')[-1]
-                self.current_game.game_id = game_id
+            # if self.stack_contains('section', 'sb-actions') and tag == 'a' and 'gamecast' in node.get_attr('name'):
+            #     link = node.get_attr('href')
+            #     game_id = link.split('/')[-1]
+            #     self.current_game.game_id = game_id
 
     def current_tag(self) -> str:
         return self.current_node().tag
