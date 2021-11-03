@@ -210,9 +210,9 @@ class ScheduleParser(HTMLParser):
 
 
 if __name__ == '__main__':
-    # year_arg = sys.argv[1]
-    year_arg = 2021
-    # week_arg = sys.argv[2]
-    week_arg = 8
+    year_arg = sys.argv[1]
+    # year_arg = 2021
+    week_arg = sys.argv[2]
+    # week_arg = 8
     parser = ScheduleParser(int(year_arg), int(week_arg))
     parser.run()
