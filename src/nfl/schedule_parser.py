@@ -12,6 +12,43 @@ from html.parser import HTMLParser
 PROJECT_DIR = '/Users/derek/workspace/picks-pool'
 
 
+def get_team_abbr(team_name: str) -> str:
+    return {
+        '49ers': 'SF',
+        'Bears': 'CHI',
+        'Bengals': 'CIN',
+        'Bills': 'BUF',
+        'Broncos': 'DEN',
+        'Browns': 'CLE',
+        'Buccaneers': 'TB',
+        'Cardinals': 'ARI',
+        'Chargers': 'LAC',
+        'Chiefs': 'KC',
+        'Colts': 'IND',
+        'Cowboys': 'DAL',
+        'Dolphins': 'MIA',
+        'Eagles': 'PHI',
+        'Falcons': 'ATL',
+        'Giants': 'NYG',
+        'Jaguars': 'JAX',
+        'Jets': 'NYJ',
+        'Lions': 'DET',
+        'Packers': 'GB',
+        'Panthers': 'CAR',
+        'Patriots': 'NE',
+        'Raiders': 'LV',
+        'Rams': 'LAR',
+        'Ravens': 'BAL',
+        'Saints': 'NO',
+        'Seahawks': 'SEA',
+        'Steelers': 'PIT',
+        'Texans': 'HOU',
+        'Titans': 'TEN',
+        'Vikings': 'MIN',
+        'Washington': 'WSH'
+    }.get(team_name)
+
+
 @dataclass
 class Node:
     tag: str
@@ -49,15 +86,15 @@ class GameData:
         if self.line == 'EVEN':
             return 0
         line_parts = self.line.split(' ')
-        line_parts = self.line.split(' ')
         if line_parts[0] == self.away_team_abbr:
             return line_parts[1]
         return -1 * float(line_parts[1])
 
     def convert_to_local_date(self):
-        utc_datetime = datetime.datetime.strptime(self.date_and_time, '%Y-%m-%dT%H:%MZ')
-        utc_datetime = utc_datetime.replace(tzinfo=tz.tzutc())
-        local_datetime = utc_datetime.astimezone(tz.tzlocal())
+        if self.date_and_time == '':
+            print('Unable to parse empty date/time')
+            return ''
+        local_datetime = datetime.datetime.strptime(self.date_and_time, '%Y-%m-%dT%I:%M %p')
         return local_datetime.strftime('%Y-%m-%d %H:%M')
 
     def to_row(self) -> list:
@@ -65,10 +102,10 @@ class GameData:
             self.week,
             self.game_id,
             self.convert_to_local_date(),
-            self.away_team_abbr,
+            get_team_abbr(self.away_team_name),
             self.away_team_name,
             self.get_away_team_line(),
-            self.home_team_abbr,
+            get_team_abbr(self.home_team_name),
             self.home_team_name
         ]
 
@@ -79,6 +116,7 @@ class ScheduleParser(HTMLParser):
         super().__init__()
         self.year: int = year
         self.week: int = week
+        self.current_date: str = ''
         self.in_scoreboard_page = False
         self.node_stack: List[Node] = list()
         self.current_game: GameData = None
@@ -105,16 +143,17 @@ class ScheduleParser(HTMLParser):
     def get_output_file_name(self) -> str:
         return f'{PROJECT_DIR}/output/nfl/{self.year}/week{self.week}.csv'
 
-    def fetch_schedule_html(self):
-        url = f'https://www.espn.com/nfl/scoreboard/_/year/{self.year}/seasontype/2/week/{self.week}'
-        resp = requests.get(url)
-        with open(self.get_input_file_name(), 'w') as f:
-            f.write(resp.text)
-
     def handle_starttag(self, tag, attrs):
         node = Node(tag, attrs, '')
-        if tag == 'article' and node.has_class('scoreboard') and node.has_class('football'):
-            print(attrs)
+
+        # class ="Scoreboard__Row flex w-100 Scoreboard__Row__Main"
+        # if tag == 'article' and node.has_class('scoreboard') and node.has_class('football'):
+        if tag == 'header' and node.has_class('Card__Header'):
+            date_str = node.get_attr('aria-label')
+            if date_str != 'Bye Week Teams':
+                self.current_date = datetime.datetime.strptime(date_str, '%A, %B %d, %Y').strftime('%Y-%m-%d')
+        if tag == 'section' and node.has_class('Scoreboard'):
+            # print(attrs)
             self.in_scoreboard_page = True
             self.current_game = GameData(self.week)
             self.games.append(self.current_game)
@@ -122,12 +161,6 @@ class ScheduleParser(HTMLParser):
             self.current_game.game_id = game_id
         if self.in_scoreboard_page:
             self.node_stack.append(node)
-            if tag == 'th' and node.has_class('date-time'):
-                self.current_game.date_and_time = node.get_attr('data-date')
-            # if self.stack_contains('section', 'sb-actions') and tag == 'a' and 'gamecast' in node.get_attr('name'):
-            #     link = node.get_attr('href')
-            #     game_id = link.split('/')[-1]
-            #     self.current_game.game_id = game_id
 
     def current_tag(self) -> str:
         return self.current_node().tag
@@ -145,15 +178,20 @@ class ScheduleParser(HTMLParser):
         if not self.in_scoreboard_page:
             return
         self.current_node().data = data
-        if self.current_tag() == 'th' and self.current_node().has_class('line'):
-            self.current_game.line = data
-        in_away_team_node = self.stack_contains('td', 'away')
-        in_home_team_node = self.stack_contains('td', 'home')
-        if self.current_tag() == 'span' and self.current_node().has_class('sb-team-short'):
-            if in_away_team_node:
+        if self.current_tag() == 'div' and self.current_node().has_class('n9'):
+            if data.strip().startswith('Line :'):
+                self.current_game.line = data.replace('Line :', '').strip()
+                print('line: ' + self.current_game.line)
+        in_away_team_node = self.stack_contains('li', 'ScoreboardScoreCell__Item--away')
+        in_home_team_node = self.stack_contains('li', 'ScoreboardScoreCell__Item--home')
+        if self.current_tag() == 'div' and self.current_node().has_class('ScoreCell__TeamName'):
+            # for some reason, away team node is still in the stack when it hits the home team node
+            if in_away_team_node and not in_home_team_node:
                 self.current_game.away_team_name = data
             elif in_home_team_node:
                 self.current_game.home_team_name = data
+        if self.current_tag() == 'div' and self.current_node().has_class('ScoreboardScoreCell__Time'):
+            self.current_game.date_and_time = self.current_date + 'T' + data
         if self.current_tag() == 'span' and self.current_node().has_class('sb-team-abbrev'):
             if in_away_team_node:
                 self.current_game.away_team_abbr = data
@@ -172,7 +210,9 @@ class ScheduleParser(HTMLParser):
 
 
 if __name__ == '__main__':
-    year_arg = sys.argv[1]
-    week_arg = sys.argv[2]
+    # year_arg = sys.argv[1]
+    year_arg = 2021
+    # week_arg = sys.argv[2]
+    week_arg = 8
     parser = ScheduleParser(int(year_arg), int(week_arg))
     parser.run()
